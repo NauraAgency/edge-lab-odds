@@ -121,6 +121,11 @@ def stats(ps):
             "avgCLV": r4(statistics.mean(clvs)) if clvs else None,
             "brier": r4(brier), "brierVsMarket": r4(bbrier - mbrier) if (bbrier is not None and mbrier is not None) else None}
 
+def is_best(p):
+    """A bot's 'best bets': research picks rated confidence 3+, Quant picks priced at or above fair (EV >= 0)."""
+    if p.get("bot") == "quant": return (p.get("ev") or -1) >= 0
+    return (p.get("conf") or 0) >= 3
+
 def trust(s):
     """Weight on the bot's own opinion vs. the market, earned per market."""
     if s["n"] < 50 or s["avgCLV"] is None: return 0.5
@@ -200,6 +205,8 @@ def run(a):
         s["bot"] = b
         s["byMarket"] = {m: stats([p for p in mine if p.get("market") == m]) for m in MARKETS}
         s["trust"] = {m: (1.0 if b == "quant" else trust(s["byMarket"][m])) for m in MARKETS}
+        best = [p for p in mine if is_best(p)]
+        s["best"] = {k: v for k, v in stats(best).items() if k in ("n", "w", "l", "p", "roi", "avgCLV", "staked", "profitCredits")}
         s["balance"] = acct[b]["balance"]
         s["openStake"] = int(sum(stake_of(p) for p in mine if p.get("status") == "open"))
         standings.append(s)
@@ -347,6 +354,14 @@ def bar(label, ms):
     col = GREEN if p >= 52.4 else RED
     return (f'<div class="bar"><span class="lab">{label}</span><div class="track"><div class="fill" style="width:{p:.0f}%;background:{col}"></div>'
             f'<div class="tick"></div></div><span class="val">{p:.0f}%</span></div>')
+def best_line(rb):
+    b = rb["s"].get("best") or {}; n = (b.get("w") or 0) + (b.get("l") or 0)
+    lab = "EV+ PICKS" if rb["id"] == "quant" else "CONF 3+"
+    if not n: return f'<div class="best mono tiny muted">{lab}: no graded picks yet</div>'
+    pc = 100 * b["w"] / n; col = GREEN if pc >= 52.4 else RED
+    return (f'<div class="best mono tiny"><span class="muted">{lab}</span> <b style="color:{col}">{pc:.0f}%</b> '
+            f'<span class="muted">{b["w"]}-{b["l"]} · ROI {pct_s(b.get("roi"))}</span></div>')
+
 def tstart(p): return parse_t(p["start"]).astimezone(ET).strftime("%a %-I:%M %p")
 
 def render_html(r):
@@ -360,6 +375,7 @@ def render_html(r):
 <div class="row base"><span class="roi" style="color:{GREEN if (roi or 0) > 0 else RED}">{pct_s(roi)}</span><span class="mono muted small">ROI</span></div>
 <div class="mono bal">{s['balance']:,} ◎ <span class="muted small">of {START_BALANCE:,}</span></div>
 {bar('ML', s['byMarket']['h2h'])}{bar('SPR', s['byMarket']['spreads'])}{bar('TOT', s['byMarket']['totals'])}
+{best_line(rb)}
 </div>'''
     sections = ""
     for rb in bots:
@@ -445,6 +461,7 @@ h1 {{ margin:0; font-size:22px; font-weight:900; letter-spacing:-.3px; }}
 .bar .lab {{ color:{MUTED}; }} .bar .val {{ text-align:right; font-weight:700; }}
 .track {{ position:relative; height:6px; background:#1d2733; border-radius:3px; }} .fill {{ height:6px; border-radius:3px; }}
 .tick {{ position:absolute; left:52.4%; top:-3px; width:1px; height:12px; background:{MUTED}; }}
+.best {{ border-top:1px solid #1d2733; padding-top:5px; margin-top:1px; }}
 .legend {{ font-size:9px; color:{MUTED}; margin:-8px 0 14px; }}
 section.bot {{ margin-bottom:16px; }}
 .bhead {{ display:flex; justify-content:space-between; align-items:baseline; border-left:3px solid {ACC}; padding-left:9px; margin-bottom:8px; break-after:avoid; }}
