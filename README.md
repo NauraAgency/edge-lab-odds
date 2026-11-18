@@ -22,3 +22,10 @@ The research bots (Scout, Analyst, Consensus) run as Claude scheduled tasks that
 
 ## Credits
 Free Odds API plan = 500/month. Odds = 3 markets × 1 region per league = 6 per run; scores = 2 per league, only when games are waiting (~450–480/month).
+
+## Daily bot report (`reports/edge_report.py`)
+
+The research-bots scheduled task runs this after the bots pick. It stakes new picks from each bot's credit account
+(10,000 to start; quarter-Kelly on the bot's win chance pulled toward the market until it earns trust, 0.5% floor,
+3% cap, confidence 4-5 boosts), recomputes balances and standings, and renders the Night-style PDF (All Bots Agree
+first, then each bot ranked by ROI). Needs `playwright` + Chrome. See the docstring for inputs and outputs.

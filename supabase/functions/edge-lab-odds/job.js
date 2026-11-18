@@ -1,6 +1,6 @@
 // Edge Lab odds job (runs as a Supabase Edge Function, scheduled by pg_cron).
 // 1) Pull NBA + NFL odds (moneyline, spread, total) from The Odds API -> edge_lab.odds_snapshots / latest_odds
-// 2) Quant bot picks every game starting within PICK_WINDOW_HOURS (one pick per market)
+// 2) Quant bot picks every game starting within PICK_WINDOW_HOURS (one pick per market; the morning pull covers the day)
 // 3) When games have finished, pull final scores (edge_lab.game_results), grade Quant picks, record closing-line value
 // Scores-only mode (runScores): live + recent scores -> edge_lab.live_scores (and finals -> game_results + grading).
 //   Spends credits only for a league with a game in its live window or a started game still missing a result.
@@ -8,7 +8,7 @@
 
 export const SPORTS = { basketball_nba: "NBA", americanfootball_nfl: "NFL" };
 export const MARKETS = ["h2h", "spreads", "totals"];
-const PICK_WINDOW_HOURS = 7;
+const PICK_WINDOW_HOURS = 30; // pick at the morning pull, same time window as the research bots
 const LIVE_WINDOW_HOURS = { NBA: 3.5, NFL: 4.5 };
 
 export const dec = (a) => (a > 0 ? 1 + a / 100 : 1 + 100 / Math.abs(a));
