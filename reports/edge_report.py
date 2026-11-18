@@ -438,7 +438,7 @@ def render_html(r):
                 why = E(q.get("why") or "")
                 cells += f'''<div class="cell">
 <div class="row mono tiny muted"><span>{MKT_LABEL[m].upper()}</span><span>{E(q.get('book', ''))}</span></div>
-<div class="row base"><b class="side">{E(fmt_side(q))}</b><b class="mono price">{fmt_price(q['price'])}</b></div>
+<div class="row base"><b class="side">{E(fmt_side(q))}{' <span class="vtag">VALUE</span>' if q.get('value') else ''}</b><b class="mono price">{fmt_price(q['price'])}</b></div>
 <div class="mono tiny line2">Win {100 * float(q['prob']):.1f}% · EV <span style="color:{evc}">{pct_s(q.get('ev'))}</span></div>
 <div class="mono tiny line2">Stake {stake_s} {conf}</div>
 {f'<div class="why">{why}</div>' if why and rb['id'] != 'quant' else ''}
@@ -514,6 +514,7 @@ section.bot {{ margin-bottom:16px; }}
 .side {{ font-size:12px; }} .price {{ font-size:12px; color:{ACC}; }} .line2 {{ color:#b6c2d1; }}
 .stk {{ font-weight:700; color:#e8eef6; }} .stk.boost {{ color:{ACC}; }}
 .conf {{ margin-left:4px; padding:0 4px; border:1px solid #2a3646; border-radius:4px; color:#b6c2d1; }}
+.vtag {{ font-size:8px; font-weight:800; color:#111; background:{ACC}; border-radius:3px; padding:1px 4px; vertical-align:2px; }}
 .why {{ font-size:9.5px; line-height:1.35; color:#c9d3df; border-top:1px solid #1d2733; padding-top:4px; margin-top:1px; }}
 .notes {{ display:flex; flex-direction:column; gap:6px; break-inside:avoid; }}
 .note {{ font-size:10px; color:#b6c2d1; background:#121820; border-radius:8px; padding:8px 11px; line-height:1.45; }}
