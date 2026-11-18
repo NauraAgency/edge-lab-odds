@@ -34,6 +34,9 @@ LEGACY_STAKE = 100
 STAKING_START = "2026-11-18T12:00:00Z"
 FLOOR, CAP, CAP_EARNED, RUN_CAP = 0.5, 3.0, 5.0, 30.0
 CONF_MULT = {4: 1.25, 5: 1.5}
+FORM_WINDOW, FORM_MIN = 40, 20          # recent graded picks per bot x market used to judge form
+COLD_ROI, HOT_ROI = -0.10, 0.05         # cold: recent ROI <= -10% and CLV <= 0; hot: ROI >= +5% and CLV >= 0
+COLD_MULT, DRAWDOWN_AT, DRAWDOWN_MULT = 0.5, 0.20, 0.75
 MARKETS = ["h2h", "spreads", "totals"]
 MKT_LABEL = {"h2h": "Moneyline", "spreads": "Spread", "totals": "Total"}
 MKT_SHORT = {"h2h": "ML", "spreads": "SPR", "totals": "TOT"}
@@ -121,6 +124,23 @@ def stats(ps):
             "avgCLV": r4(statistics.mean(clvs)) if clvs else None,
             "brier": r4(brier), "brierVsMarket": r4(bbrier - mbrier) if (bbrier is not None and mbrier is not None) else None}
 
+def form_of(ps):
+    """Recent form for one bot x market: last FORM_WINDOW graded picks by start time."""
+    g = sorted([p for p in ps if graded(p)], key=lambda p: str(p.get("start", "")))[-FORM_WINDOW:]
+    st = stats(g)
+    if st["n"] < FORM_MIN: f = "new"
+    elif (st["roi"] or 0) <= COLD_ROI and (st["avgCLV"] is None or st["avgCLV"] <= 0): f = "cold"
+    elif (st["roi"] or 0) >= HOT_ROI and (st["avgCLV"] is None or st["avgCLV"] >= 0): f = "hot"
+    else: f = "steady"
+    return {"form": f, "n": st["n"], "w": st["w"], "l": st["l"], "roi": st["roi"], "avgCLV": st["avgCLV"]}
+
+def drawdown(ps):
+    """Current balance vs. its peak, replaying graded picks in start order."""
+    bal = peak = START_BALANCE
+    for p in sorted([p for p in ps if graded(p)], key=lambda p: str(p.get("start", ""))):
+        bal += credits_profit(p); peak = max(peak, bal)
+    return {"peak": round(peak), "dd": r4(1 - bal / peak) if peak else 0}
+
 def is_best(p):
     """A bot's 'best bets': research picks rated confidence 3+, Quant picks priced at or above fair (EV >= 0)."""
     if p.get("bot") == "quant": return (p.get("ev") or -1) >= 0
@@ -173,17 +193,24 @@ def run(a):
         mstats = {m: stats([p for p in hist if p.get("market") == m]) for m in MARKETS}
         hc_ok = earned_high_conf(hist)
         bal = acct.get(b, {"balance": START_BALANCE})["balance"]
+        forms = {m: form_of([p for p in hist if p.get("market") == m]) for m in MARKETS}
+        dd = drawdown(hist)["dd"] or 0
         for p in news:
             fair = p["prob"] if b == "quant" else fair_for(p, gid)
             if fair is None: fair = imp(p["price"]) / 1.045
             w = 1.0 if b == "quant" else trust(mstats[p["market"]])
+            cold = forms[p["market"]]["form"] == "cold"
+            if cold: w = min(w, 0.25)
             pu = fair + w * (float(p["prob"]) - fair)
             d = dec(p["price"]); k = (pu * d - 1) / (d - 1)
             pct = max(0.0, 25 * k)  # quarter Kelly, in percent
             conf = p.get("conf") or 3
             pct *= CONF_MULT.get(conf, 1.0)
+            if cold: pct *= COLD_MULT                 # losing streak in this market: half stakes
+            if dd >= DRAWDOWN_AT: pct *= DRAWDOWN_MULT # balance 20%+ below its peak: trim everything
             cap = CAP_EARNED if (conf >= 4 and hc_ok) else CAP
             p["fair"], p["pUsed"], p["trust"] = r4(fair), r4(pu), w
+            p["form"] = forms[p["market"]]["form"]
             p["stakePct"] = round(min(max(pct, FLOOR), cap), 2)
         tot = sum(p["stakePct"] for p in news)
         if tot > RUN_CAP:
@@ -207,6 +234,8 @@ def run(a):
         s["trust"] = {m: (1.0 if b == "quant" else trust(s["byMarket"][m])) for m in MARKETS}
         best = [p for p in mine if is_best(p)]
         s["best"] = {k: v for k, v in stats(best).items() if k in ("n", "w", "l", "p", "roi", "avgCLV", "staked", "profitCredits")}
+        s["form"] = {m: form_of([p for p in mine if p.get("market") == m]) for m in MARKETS}
+        s.update(drawdown(mine))
         s["balance"] = acct[b]["balance"]
         s["openStake"] = int(sum(stake_of(p) for p in mine if p.get("status") == "open"))
         standings.append(s)
@@ -362,6 +391,17 @@ def best_line(rb):
     return (f'<div class="best mono tiny"><span class="muted">{lab}</span> <b style="color:{col}">{pc:.0f}%</b> '
             f'<span class="muted">{b["w"]}-{b["l"]} · ROI {pct_s(b.get("roi"))}</span></div>')
 
+def form_line(rb):
+    s = rb["s"]; fm = s.get("form") or {}
+    cold = [MKT_SHORT[m] for m in MARKETS if fm.get(m, {}).get("form") == "cold"]
+    hot = [MKT_SHORT[m] for m in MARKETS if fm.get(m, {}).get("form") == "hot"]
+    parts = []
+    if cold: parts.append(f'<span style="color:{RED}">COLD {" ".join(cold)}</span> <span class="muted">stakes ½</span>')
+    if hot: parts.append(f'<span style="color:{GREEN}">HOT {" ".join(hot)}</span>')
+    if (s.get("dd") or 0) >= DRAWDOWN_AT: parts.append(f'<span style="color:{RED}">DOWN {100 * s["dd"]:.0f}% FROM PEAK</span>')
+    if not parts: parts.append('<span class="muted">FORM steady (last 40 per market)</span>')
+    return f'<div class="mono tiny">{" · ".join(parts)}</div>'
+
 def tstart(p): return parse_t(p["start"]).astimezone(ET).strftime("%a %-I:%M %p")
 
 def render_html(r):
@@ -375,7 +415,7 @@ def render_html(r):
 <div class="row base"><span class="roi" style="color:{GREEN if (roi or 0) > 0 else RED}">{pct_s(roi)}</span><span class="mono muted small">ROI</span></div>
 <div class="mono bal">{s['balance']:,} ◎ <span class="muted small">of {START_BALANCE:,}</span></div>
 {bar('ML', s['byMarket']['h2h'])}{bar('SPR', s['byMarket']['spreads'])}{bar('TOT', s['byMarket']['totals'])}
-{best_line(rb)}
+{best_line(rb)}{form_line(rb)}
 </div>'''
     sections = ""
     for rb in bots:
@@ -493,7 +533,7 @@ section.bot {{ margin-bottom:16px; }}
 <div class="mono tiny muted" style="text-align:right;line-height:1.6;white-space:nowrap">SEASON TO DATE · RANKED BY ROI<br>BARS = WIN % · TICK = 52.4% BREAKEVEN AT −110</div></header>
 <div class="cards">{cards}</div>
 {agree_html}
-<div class="legend">Every bot started with {START_BALANCE:,} ◎. Picks before Nov 18 were flat bets of {LEGACY_STAKE} ◎. New stakes: quarter-Kelly on the bot's win chance (pulled toward the market's fair line until the bot earns trust), 0.5% floor, 3% cap; gold stakes are boosted by confidence 4–5.</div>
+<div class="legend">Every bot started with {START_BALANCE:,} ◎. Picks before Nov 18 were flat bets of {LEGACY_STAKE} ◎. New stakes: quarter-Kelly on the bot's win chance (pulled toward the market's fair line until the bot earns trust), 0.5% floor, 3% cap; gold stakes are boosted by confidence 4–5. A market goes COLD when its last 40 picks are −10% ROI or worse with no CLV edge: stakes there are halved until it recovers; a bot 20%+ below its peak balance trims all stakes by a quarter.</div>
 {sections}
 <div class="foot">Play money only. Win % = the bot's own estimate; EV = win % × payout − 1 at the listed price; ◎ = Edge Lab credits.</div>
 </main></body></html>'''
