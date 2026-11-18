@@ -418,7 +418,7 @@ def render_html(r):
 {best_line(rb)}{form_line(rb)}
 </div>'''
     sections = ""
-    for rb in bots:
+    for rb in bots[:1]:  # short report: only the bot leading on ROI shows its picks
         s = rb["s"]; picks = rb["picks"]
         risk = sum(p.get("stake") or 0 for p in picks)
         byg = {}
@@ -478,7 +478,6 @@ def render_html(r):
     agree_html = f'''<section class="agree"><div class="bhead"><div><span class="bname">All Bots Agree</span>
 <span class="bdesc">every bot took the same side · {len(r.get('agree', []))} picks</span></div><span class="mono tiny muted">{E(rec_s.upper())}</span></div>
 {agree_rows(r.get('agree', [])) or '<div class="none">No market where all four bots agree today.</div>'}
-{f'<div class="subhead">3 OF {nb} AGREE · one dissenter</div>' + agree_rows(r.get('near', []), True) if r.get('near') else ''}
 </section>'''
     lg = " + ".join(r["leagues"]) or "NBA/NFL"
     return f'''<!doctype html><html><head><meta charset="utf-8"><title>Edge Lab Daily Bot Report</title><style>
@@ -536,7 +535,7 @@ section.bot {{ margin-bottom:16px; }}
 {agree_html}
 <div class="legend">Every bot started with {START_BALANCE:,} ◎. Picks before Nov 18 were flat bets of {LEGACY_STAKE} ◎. New stakes: quarter-Kelly on the bot's win chance (pulled toward the market's fair line until the bot earns trust), 0.5% floor, 3% cap; gold stakes are boosted by confidence 4–5. A market goes COLD when its last 40 picks are −10% ROI or worse with no CLV edge: stakes there are halved until it recovers; a bot 20%+ below its peak balance trims all stakes by a quarter.</div>
 {sections}
-<div class="foot">Play money only. Win % = the bot's own estimate; EV = win % × payout − 1 at the listed price; ◎ = Edge Lab credits.</div>
+<div class="foot">Showing picks for the ROI leader only; every bot's full picks are in the app. Play money only. Win % = the bot's own estimate; EV = win % × payout − 1 at the listed price; ◎ = Edge Lab credits.</div>
 </main></body></html>'''
 
 def to_pdf(html_path, pdf_path, r):
